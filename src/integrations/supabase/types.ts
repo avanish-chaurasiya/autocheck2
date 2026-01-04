@@ -14,7 +14,48 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      evaluations: {
+        Row: {
+          answer_sheet_url: string | null
+          created_at: string
+          evaluated_at: string
+          id: string
+          max_marks: number
+          pdf_report_url: string | null
+          student_roll_number: string
+          subject: string
+          total_marks: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          answer_sheet_url?: string | null
+          created_at?: string
+          evaluated_at?: string
+          id?: string
+          max_marks?: number
+          pdf_report_url?: string | null
+          student_roll_number: string
+          subject: string
+          total_marks?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          answer_sheet_url?: string | null
+          created_at?: string
+          evaluated_at?: string
+          id?: string
+          max_marks?: number
+          pdf_report_url?: string | null
+          student_roll_number?: string
+          subject?: string
+          total_marks?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { GraduationCap, Mail, Lock, ArrowLeft, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 const Auth = () => {
   const navigate = useNavigate();
@@ -18,6 +19,26 @@ const Auth = () => {
     confirmPassword: "",
     name: "",
   });
+
+  useEffect(() => {
+    // Set up auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (session?.user) {
+          navigate("/dashboard");
+        }
+      }
+    );
+
+    // Check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        navigate("/dashboard");
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,22 +65,83 @@ const Auth = () => {
       return;
     }
 
-    // Simulate authentication (replace with Supabase auth when connected)
-    setTimeout(() => {
-      // Store mock user data
-      localStorage.setItem("user", JSON.stringify({
-        email: formData.email,
-        name: formData.name || formData.email.split("@")[0],
-      }));
-      
+    if (formData.password.length < 6) {
       toast({
-        title: isLogin ? "Welcome back!" : "Account created!",
-        description: isLogin ? "You have successfully logged in." : "Your account has been created successfully.",
+        variant: "destructive",
+        title: "Error",
+        description: "Password must be at least 6 characters.",
       });
-      
       setIsLoading(false);
-      navigate("/dashboard");
-    }, 1000);
+      return;
+    }
+
+    try {
+      if (isLogin) {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: formData.email,
+          password: formData.password,
+        });
+
+        if (error) {
+          toast({
+            variant: "destructive",
+            title: "Sign in failed",
+            description: error.message,
+          });
+          setIsLoading(false);
+          return;
+        }
+
+        toast({
+          title: "Welcome back!",
+          description: "You have successfully logged in.",
+        });
+      } else {
+        const redirectUrl = `${window.location.origin}/`;
+        
+        const { error } = await supabase.auth.signUp({
+          email: formData.email,
+          password: formData.password,
+          options: {
+            emailRedirectTo: redirectUrl,
+            data: {
+              name: formData.name || formData.email.split("@")[0],
+            },
+          },
+        });
+
+        if (error) {
+          if (error.message.includes("already registered")) {
+            toast({
+              variant: "destructive",
+              title: "Account exists",
+              description: "This email is already registered. Please sign in instead.",
+            });
+          } else {
+            toast({
+              variant: "destructive",
+              title: "Sign up failed",
+              description: error.message,
+            });
+          }
+          setIsLoading(false);
+          return;
+        }
+
+        toast({
+          title: "Account created!",
+          description: "Your account has been created successfully.",
+        });
+      }
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "An unexpected error occurred. Please try again.",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
