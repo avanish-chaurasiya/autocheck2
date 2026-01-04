@@ -4,36 +4,84 @@ import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText, History, ClipboardCheck, TrendingUp } from "lucide-react";
-
-interface User {
-  email: string;
-  name: string;
-}
+import { FileText, History, ClipboardCheck, TrendingUp, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { User } from "@supabase/supabase-js";
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({ total: 0, thisMonth: 0 });
 
   useEffect(() => {
-    const storedUser = localStorage.getItem("user");
-    if (!storedUser) {
-      navigate("/auth");
-      return;
-    }
-    setUser(JSON.parse(storedUser));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setUser(session?.user ?? null);
+        if (!session?.user) {
+          navigate("/auth");
+        }
+      }
+    );
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setLoading(false);
+      if (!session?.user) {
+        navigate("/auth");
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, [navigate]);
 
-  const handleLogout = () => {
-    localStorage.removeItem("user");
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchStats = async () => {
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+
+      const { count: totalCount } = await supabase
+        .from("evaluations")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id);
+
+      const { count: monthCount } = await supabase
+        .from("evaluations")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .gte("created_at", startOfMonth.toISOString());
+
+      setStats({
+        total: totalCount || 0,
+        thisMonth: monthCount || 0,
+      });
+    };
+
+    fetchStats();
+  }, [user]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     navigate("/");
   };
 
-  // Mock stats
-  const stats = [
-    { label: "Total Evaluations", value: "0", icon: ClipboardCheck },
-    { label: "This Month", value: "0", icon: TrendingUp },
+  const userName = user?.user_metadata?.name || user?.email?.split("@")[0] || "Teacher";
+
+  const statsCards = [
+    { label: "Total Evaluations", value: stats.total.toString(), icon: ClipboardCheck },
+    { label: "This Month", value: stats.thisMonth.toString(), icon: TrendingUp },
   ];
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   if (!user) return null;
 
@@ -45,7 +93,7 @@ const Dashboard = () => {
         {/* Welcome Section */}
         <div className="mb-8 animate-fade-up">
           <h1 className="text-3xl font-display font-bold text-foreground mb-2">
-            Welcome back, {user.name}!
+            Welcome back, {userName}!
           </h1>
           <p className="text-muted-foreground">
             Ready to evaluate some answer sheets? Choose an action below.
@@ -54,7 +102,7 @@ const Dashboard = () => {
 
         {/* Stats Cards */}
         <div className="grid sm:grid-cols-2 gap-4 mb-8">
-          {stats.map((stat, index) => (
+          {statsCards.map((stat, index) => (
             <Card key={stat.label} className="glass-card animate-fade-up" style={{ animationDelay: `${index * 0.1}s` }}>
               <CardContent className="flex items-center gap-4 p-6">
                 <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">

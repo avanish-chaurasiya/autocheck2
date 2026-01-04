@@ -13,53 +13,69 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Search, Download, FileText, Inbox } from "lucide-react";
+import { Search, Download, FileText, Inbox, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { User } from "@supabase/supabase-js";
 
-interface HistoryItem {
+interface Evaluation {
   id: string;
-  rollNumber: string;
+  student_roll_number: string;
   subject: string;
-  totalMarks: number;
-  obtainedMarks: number;
-  percentage: number;
-  date: string;
+  total_marks: number;
+  max_marks: number;
+  evaluated_at: string;
+  pdf_report_url: string | null;
 }
 
 const History = () => {
   const navigate = useNavigate();
-  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [filteredHistory, setFilteredHistory] = useState<HistoryItem[]>([]);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem("user");
-    if (!storedUser) {
-      navigate("/auth");
-      return;
-    }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setUser(session?.user ?? null);
+        if (!session?.user) {
+          navigate("/auth");
+        }
+      }
+    );
 
-    // Load history from localStorage
-    const storedHistory = JSON.parse(localStorage.getItem("evaluationHistory") || "[]");
-    setHistory(storedHistory);
-    setFilteredHistory(storedHistory);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      if (!session?.user) {
+        navigate("/auth");
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, [navigate]);
 
   useEffect(() => {
-    if (!searchQuery.trim()) {
-      setFilteredHistory(history);
-    } else {
-      const query = searchQuery.toLowerCase();
-      const filtered = history.filter(
-        (item) =>
-          item.rollNumber.toLowerCase().includes(query) ||
-          item.subject.toLowerCase().includes(query)
-      );
-      setFilteredHistory(filtered);
-    }
-  }, [searchQuery, history]);
+    if (!user) return;
 
-  const handleLogout = () => {
-    localStorage.removeItem("user");
+    const fetchEvaluations = async () => {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("evaluations")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("evaluated_at", { ascending: false });
+
+      if (!error && data) {
+        setEvaluations(data);
+      }
+      setLoading(false);
+    };
+
+    fetchEvaluations();
+  }, [user]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     navigate("/");
   };
 
@@ -70,6 +86,23 @@ const History = () => {
       day: "numeric",
     });
   };
+
+  const filteredEvaluations = evaluations.filter((item) => {
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      item.student_roll_number.toLowerCase().includes(query) ||
+      item.subject.toLowerCase().includes(query)
+    );
+  });
+
+  if (loading && !user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -103,8 +136,11 @@ const History = () => {
               />
             </div>
 
-            {/* History Table */}
-            {filteredHistory.length > 0 ? (
+            {loading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : filteredEvaluations.length > 0 ? (
               <div className="rounded-lg border overflow-hidden">
                 <Table>
                   <TableHeader>
@@ -118,38 +154,46 @@ const History = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredHistory.map((item, index) => (
-                      <TableRow 
-                        key={item.id} 
-                        className="animate-fade-up"
-                        style={{ animationDelay: `${index * 0.05}s` }}
-                      >
-                        <TableCell className="font-medium">{item.rollNumber}</TableCell>
-                        <TableCell>{item.subject}</TableCell>
-                        <TableCell className="text-center">
-                          {item.obtainedMarks} / {item.totalMarks}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <span className={`inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                            item.percentage >= 80 
-                              ? "bg-success/10 text-success" 
-                              : item.percentage >= 50 
-                              ? "bg-accent/10 text-accent" 
-                              : "bg-destructive/10 text-destructive"
-                          }`}>
-                            {item.percentage}%
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {formatDate(item.date)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="sm">
-                            <Download className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {filteredEvaluations.map((item, index) => {
+                      const percentage = Math.round((Number(item.total_marks) / Number(item.max_marks)) * 100);
+                      return (
+                        <TableRow 
+                          key={item.id} 
+                          className="animate-fade-up"
+                          style={{ animationDelay: `${index * 0.05}s` }}
+                        >
+                          <TableCell className="font-medium">{item.student_roll_number}</TableCell>
+                          <TableCell>{item.subject}</TableCell>
+                          <TableCell className="text-center">
+                            {item.total_marks} / {item.max_marks}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <span className={`inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                              percentage >= 80 
+                                ? "bg-success/10 text-success" 
+                                : percentage >= 50 
+                                ? "bg-accent/10 text-accent" 
+                                : "bg-destructive/10 text-destructive"
+                            }`}>
+                              {percentage}%
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {formatDate(item.evaluated_at)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              disabled={!item.pdf_report_url}
+                              onClick={() => item.pdf_report_url && window.open(item.pdf_report_url, "_blank")}
+                            >
+                              <Download className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
