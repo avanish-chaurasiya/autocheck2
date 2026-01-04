@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Upload, FileText, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Upload, FileText, Loader2, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { User } from "@supabase/supabase-js";
 
 interface EvaluationResult {
   rollNumber: string;
@@ -15,11 +17,13 @@ interface EvaluationResult {
   totalMarks: number;
   obtainedMarks: number;
   percentage: number;
+  pdfReportUrl?: string;
 }
 
 const Evaluate = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<EvaluationResult | null>(null);
   const [formData, setFormData] = useState({
@@ -31,14 +35,27 @@ const Evaluate = () => {
   const [answerSheet, setAnswerSheet] = useState<File | null>(null);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem("user");
-    if (!storedUser) {
-      navigate("/auth");
-    }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setUser(session?.user ?? null);
+        if (!session?.user) {
+          navigate("/auth");
+        }
+      }
+    );
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      if (!session?.user) {
+        navigate("/auth");
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, [navigate]);
 
-  const handleLogout = () => {
-    localStorage.removeItem("user");
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     navigate("/");
   };
 
@@ -53,10 +70,99 @@ const Evaluate = () => {
     }
   };
 
+  const generatePdfReport = async (evaluationResult: EvaluationResult): Promise<Blob> => {
+    // Generate a simple PDF report content
+    // In production, this would use a proper PDF library or backend service
+    const content = `
+EVALUATION REPORT
+=================
+
+Student Roll Number: ${evaluationResult.rollNumber}
+Subject: ${evaluationResult.subject}
+Date: ${new Date().toLocaleDateString()}
+
+RESULTS
+-------
+Total Marks: ${evaluationResult.totalMarks}
+Marks Obtained: ${evaluationResult.obtainedMarks}
+Percentage: ${evaluationResult.percentage}%
+
+Grade: ${evaluationResult.percentage >= 90 ? 'A+' : 
+        evaluationResult.percentage >= 80 ? 'A' :
+        evaluationResult.percentage >= 70 ? 'B' :
+        evaluationResult.percentage >= 60 ? 'C' :
+        evaluationResult.percentage >= 50 ? 'D' : 'F'}
+
+This report was generated automatically by the AI Paper Evaluation System.
+    `;
+    
+    return new Blob([content], { type: 'application/pdf' });
+  };
+
+  const uploadPdfReport = async (pdfBlob: Blob, rollNumber: string, subject: string): Promise<string | null> => {
+    if (!user) return null;
+
+    const timestamp = Date.now();
+    const sanitizedSubject = subject.replace(/[^a-zA-Z0-9]/g, '_');
+    const fileName = `${user.id}/${rollNumber}_${sanitizedSubject}_${timestamp}.pdf`;
+
+    const { data, error } = await supabase.storage
+      .from('evaluated-pdf-reports')
+      .upload(fileName, pdfBlob, {
+        contentType: 'application/pdf',
+        upsert: false
+      });
+
+    if (error) {
+      console.error('Error uploading PDF:', error);
+      return null;
+    }
+
+    const { data: publicUrl } = supabase.storage
+      .from('evaluated-pdf-reports')
+      .getPublicUrl(data.path);
+
+    return publicUrl.publicUrl;
+  };
+
+  const saveEvaluationToDatabase = async (
+    evaluationResult: EvaluationResult,
+    pdfUrl: string | null
+  ): Promise<boolean> => {
+    if (!user) return false;
+
+    const { error } = await supabase
+      .from('evaluations')
+      .insert({
+        user_id: user.id,
+        student_roll_number: evaluationResult.rollNumber,
+        subject: evaluationResult.subject,
+        max_marks: evaluationResult.totalMarks,
+        total_marks: evaluationResult.obtainedMarks,
+        pdf_report_url: pdfUrl,
+      });
+
+    if (error) {
+      console.error('Error saving evaluation:', error);
+      return false;
+    }
+
+    return true;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validation
+    if (!user) {
+      toast({
+        variant: "destructive",
+        title: "Not Authenticated",
+        description: "Please log in to evaluate papers.",
+      });
+      navigate("/auth");
+      return;
+    }
+
     if (!formData.subject || !formData.totalMarks || !formData.rollNumber) {
       toast({
         variant: "destructive",
@@ -77,9 +183,10 @@ const Evaluate = () => {
 
     setIsLoading(true);
 
-    // Simulate API call to backend for evaluation
-    // In production, this would call an actual backend API
-    setTimeout(() => {
+    try {
+      // Simulate AI evaluation (in production, this would call a backend API)
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
       const totalMarks = parseInt(formData.totalMarks);
       const obtainedMarks = Math.floor(Math.random() * (totalMarks * 0.4) + totalMarks * 0.5);
       
@@ -91,23 +198,36 @@ const Evaluate = () => {
         percentage: Math.round((obtainedMarks / totalMarks) * 100),
       };
 
-      // Store in history (localStorage for now)
-      const history = JSON.parse(localStorage.getItem("evaluationHistory") || "[]");
-      history.unshift({
-        ...evaluationResult,
-        date: new Date().toISOString(),
-        id: Date.now().toString(),
-      });
-      localStorage.setItem("evaluationHistory", JSON.stringify(history));
+      // Generate and upload PDF report
+      const pdfBlob = await generatePdfReport(evaluationResult);
+      const pdfUrl = await uploadPdfReport(pdfBlob, formData.rollNumber, formData.subject);
 
-      setResult(evaluationResult);
-      setIsLoading(false);
+      // Save evaluation to database
+      const saved = await saveEvaluationToDatabase(evaluationResult, pdfUrl);
+
+      if (!saved) {
+        throw new Error('Failed to save evaluation');
+      }
+
+      setResult({
+        ...evaluationResult,
+        pdfReportUrl: pdfUrl || undefined,
+      });
 
       toast({
         title: "Evaluation Complete",
-        description: "The answer sheet has been evaluated successfully.",
+        description: "The answer sheet has been evaluated and saved successfully.",
       });
-    }, 3000);
+    } catch (error) {
+      console.error('Evaluation error:', error);
+      toast({
+        variant: "destructive",
+        title: "Evaluation Failed",
+        description: "An error occurred during evaluation. Please try again.",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const resetForm = () => {
@@ -116,6 +236,20 @@ const Evaluate = () => {
     setAnswerSheet(null);
     setResult(null);
   };
+
+  const handleDownloadPdf = () => {
+    if (result?.pdfReportUrl) {
+      window.open(result.pdfReportUrl, '_blank');
+    }
+  };
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -261,7 +395,7 @@ const Evaluate = () => {
               </div>
               <CardTitle className="text-2xl font-display">Evaluation Complete</CardTitle>
               <CardDescription>
-                The answer sheet has been evaluated successfully.
+                The answer sheet has been evaluated and saved successfully.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -291,7 +425,12 @@ const Evaluate = () => {
 
               {/* Actions */}
               <div className="flex flex-col sm:flex-row gap-3">
-                <Button variant="hero" className="flex-1">
+                <Button 
+                  variant="hero" 
+                  className="flex-1"
+                  onClick={handleDownloadPdf}
+                  disabled={!result.pdfReportUrl}
+                >
                   <FileText className="h-4 w-4" />
                   Download PDF Report
                 </Button>

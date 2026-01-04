@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
@@ -13,7 +13,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Search, Download, FileText, Inbox, Loader2 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Search, Download, FileText, Inbox, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { User } from "@supabase/supabase-js";
 
@@ -27,12 +34,16 @@ interface Evaluation {
   pdf_report_url: string | null;
 }
 
+const ITEMS_PER_PAGE = 10;
+
 const History = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [subjectFilter, setSubjectFilter] = useState<string>("all");
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -87,14 +98,40 @@ const History = () => {
     });
   };
 
-  const filteredEvaluations = evaluations.filter((item) => {
-    if (!searchQuery.trim()) return true;
-    const query = searchQuery.toLowerCase();
-    return (
-      item.student_roll_number.toLowerCase().includes(query) ||
-      item.subject.toLowerCase().includes(query)
-    );
-  });
+  // Get unique subjects for filter
+  const uniqueSubjects = useMemo(() => {
+    const subjects = [...new Set(evaluations.map(e => e.subject))];
+    return subjects.sort();
+  }, [evaluations]);
+
+  // Filter and search evaluations
+  const filteredEvaluations = useMemo(() => {
+    return evaluations.filter((item) => {
+      const matchesSearch = !searchQuery.trim() || 
+        item.student_roll_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.subject.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      const matchesSubject = subjectFilter === "all" || item.subject === subjectFilter;
+      
+      return matchesSearch && matchesSubject;
+    });
+  }, [evaluations, searchQuery, subjectFilter]);
+
+  // Pagination
+  const totalPages = Math.ceil(filteredEvaluations.length / ITEMS_PER_PAGE);
+  const paginatedEvaluations = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredEvaluations.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [filteredEvaluations, currentPage]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, subjectFilter]);
+
+  const handleDownloadPdf = (url: string) => {
+    window.open(url, '_blank');
+  };
 
   if (loading && !user) {
     return (
@@ -125,78 +162,128 @@ const History = () => {
             </div>
           </CardHeader>
           <CardContent>
-            {/* Search Bar */}
-            <div className="relative mb-6">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by roll number or subject..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
+            {/* Search and Filter Bar */}
+            <div className="flex flex-col sm:flex-row gap-4 mb-6">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by roll number..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <Select value={subjectFilter} onValueChange={setSubjectFilter}>
+                <SelectTrigger className="w-full sm:w-[180px]">
+                  <SelectValue placeholder="Filter by subject" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Subjects</SelectItem>
+                  {uniqueSubjects.map((subject) => (
+                    <SelectItem key={subject} value={subject}>
+                      {subject}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             {loading ? (
               <div className="flex items-center justify-center py-16">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
-            ) : filteredEvaluations.length > 0 ? (
-              <div className="rounded-lg border overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/50">
-                      <TableHead>Roll Number</TableHead>
-                      <TableHead>Subject</TableHead>
-                      <TableHead className="text-center">Marks</TableHead>
-                      <TableHead className="text-center">Percentage</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead className="text-right">Report</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredEvaluations.map((item, index) => {
-                      const percentage = Math.round((Number(item.total_marks) / Number(item.max_marks)) * 100);
-                      return (
-                        <TableRow 
-                          key={item.id} 
-                          className="animate-fade-up"
-                          style={{ animationDelay: `${index * 0.05}s` }}
-                        >
-                          <TableCell className="font-medium">{item.student_roll_number}</TableCell>
-                          <TableCell>{item.subject}</TableCell>
-                          <TableCell className="text-center">
-                            {item.total_marks} / {item.max_marks}
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <span className={`inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                              percentage >= 80 
-                                ? "bg-success/10 text-success" 
-                                : percentage >= 50 
-                                ? "bg-accent/10 text-accent" 
-                                : "bg-destructive/10 text-destructive"
-                            }`}>
-                              {percentage}%
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {formatDate(item.evaluated_at)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Button 
-                              variant="ghost" 
-                              size="sm"
-                              disabled={!item.pdf_report_url}
-                              onClick={() => item.pdf_report_url && window.open(item.pdf_report_url, "_blank")}
-                            >
-                              <Download className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
+            ) : paginatedEvaluations.length > 0 ? (
+              <>
+                <div className="rounded-lg border overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/50">
+                        <TableHead>Student Roll No</TableHead>
+                        <TableHead>Subject</TableHead>
+                        <TableHead className="text-center">Marks</TableHead>
+                        <TableHead className="text-center">Percentage</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead className="text-right">PDF Report</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {paginatedEvaluations.map((item, index) => {
+                        const percentage = Math.round((Number(item.total_marks) / Number(item.max_marks)) * 100);
+                        return (
+                          <TableRow 
+                            key={item.id} 
+                            className="animate-fade-up"
+                            style={{ animationDelay: `${index * 0.05}s` }}
+                          >
+                            <TableCell className="font-medium">{item.student_roll_number}</TableCell>
+                            <TableCell>{item.subject}</TableCell>
+                            <TableCell className="text-center">
+                              {item.total_marks} / {item.max_marks}
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <span className={`inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                                percentage >= 80 
+                                  ? "bg-success/10 text-success" 
+                                  : percentage >= 50 
+                                  ? "bg-accent/10 text-accent" 
+                                  : "bg-destructive/10 text-destructive"
+                              }`}>
+                                {percentage}%
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">
+                              {formatDate(item.evaluated_at)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                disabled={!item.pdf_report_url}
+                                onClick={() => item.pdf_report_url && handleDownloadPdf(item.pdf_report_url)}
+                              >
+                                <Download className="h-4 w-4 mr-1" />
+                                Download
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between mt-4">
+                    <p className="text-sm text-muted-foreground">
+                      Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, filteredEvaluations.length)} of {filteredEvaluations.length} results
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                        Previous
+                      </Button>
+                      <span className="text-sm text-muted-foreground px-2">
+                        Page {currentPage} of {totalPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                      >
+                        Next
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
             ) : (
               /* Empty State */
               <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -204,15 +291,15 @@ const History = () => {
                   <Inbox className="h-8 w-8 text-muted-foreground" />
                 </div>
                 <h3 className="text-lg font-semibold text-foreground mb-2">
-                  {searchQuery ? "No results found" : "No evaluations yet"}
+                  {searchQuery || subjectFilter !== "all" ? "No results found" : "No evaluations yet"}
                 </h3>
                 <p className="text-muted-foreground mb-6 max-w-sm">
-                  {searchQuery 
-                    ? "Try adjusting your search query to find what you're looking for."
+                  {searchQuery || subjectFilter !== "all"
+                    ? "Try adjusting your search or filter to find what you're looking for."
                     : "Start by evaluating your first answer sheet to see it here."
                   }
                 </p>
-                {!searchQuery && (
+                {!searchQuery && subjectFilter === "all" && (
                   <Button variant="hero" onClick={() => navigate("/evaluate")}>
                     <FileText className="h-4 w-4" />
                     Evaluate First Paper
