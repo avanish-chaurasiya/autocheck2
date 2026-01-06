@@ -15,6 +15,9 @@ interface EvaluationRequest {
 
 interface QuestionEvaluation {
   questionNumber: number;
+  questionText: string;
+  studentAnswer: string;
+  expectedAnswer: string;
   maxMarks: number;
   obtainedMarks: number;
   feedback: string;
@@ -78,9 +81,12 @@ Please evaluate and return a JSON object with this exact structure:
   "questionWiseEvaluation": [
     {
       "questionNumber": 1,
+      "questionText": "The actual question being asked",
+      "studentAnswer": "What the student wrote as their answer",
+      "expectedAnswer": "The correct/expected answer from the answer key",
       "maxMarks": 10,
       "obtainedMarks": 8,
-      "feedback": "Specific feedback for this answer"
+      "feedback": "Detailed review explaining why marks were given/deducted, what was correct, what was missing"
     }
   ],
   "obtainedMarks": 75,
@@ -88,6 +94,12 @@ Please evaluate and return a JSON object with this exact structure:
   "strengths": ["Strength 1", "Strength 2"],
   "areasForImprovement": ["Area 1", "Area 2"]
 }
+
+IMPORTANT: For each question, you MUST include:
+- questionText: Extract the actual question from the answer key
+- studentAnswer: Extract what the student wrote for that question
+- expectedAnswer: The correct answer from the answer key
+- feedback: Detailed review explaining the evaluation
 
 If you cannot identify specific questions, provide an overall evaluation with estimated marks based on the content quality.`;
 
