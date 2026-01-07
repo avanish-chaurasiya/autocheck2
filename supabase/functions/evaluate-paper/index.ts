@@ -43,28 +43,26 @@ serve(async (req) => {
   }
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      console.error("LOVABLE_API_KEY is not configured");
-      throw new Error("AI service is not configured");
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    if (!GEMINI_API_KEY) {
+      console.error("GEMINI_API_KEY is not configured");
+      throw new Error("Gemini API key is not configured");
     }
 
     const { answerKeyText, answerSheetText, subject, totalMarks, rollNumber }: EvaluationRequest = await req.json();
 
     console.log(`Evaluating paper for roll number: ${rollNumber}, subject: ${subject}`);
 
-    const systemPrompt = `You are an expert academic evaluator. Your task is to evaluate student answer sheets against the provided answer key and return a structured evaluation.
+    const prompt = `You are an expert academic evaluator. Your task is to evaluate student answer sheets against the provided answer key.
 
-IMPORTANT: You must respond with ONLY a valid JSON object, no additional text.
+IMPORTANT: You must respond with ONLY a valid JSON object, no markdown, no code blocks.
 
 Evaluation Guidelines:
 1. Compare each answer in the student's sheet against the answer key
 2. Award marks based on correctness, completeness, and clarity
-3. Provide constructive feedback for each question
+3. Provide constructive feedback for each question explaining why marks were given or deducted
 4. Identify strengths and areas for improvement
-5. Be fair and consistent in your evaluation`;
-
-    const userPrompt = `Evaluate the following student answer sheet against the answer key.
+5. Be fair and consistent in your evaluation
 
 ANSWER KEY:
 ${answerKeyText}
@@ -76,7 +74,7 @@ Subject: ${subject}
 Total Marks: ${totalMarks}
 Student Roll Number: ${rollNumber}
 
-Please evaluate and return a JSON object with this exact structure:
+Return a JSON object with this exact structure:
 {
   "questionWiseEvaluation": [
     {
@@ -86,7 +84,7 @@ Please evaluate and return a JSON object with this exact structure:
       "expectedAnswer": "The correct/expected answer from the answer key",
       "maxMarks": 10,
       "obtainedMarks": 8,
-      "feedback": "Detailed review explaining why marks were given/deducted, what was correct, what was missing"
+      "feedback": "Detailed review explaining why marks were given/deducted. If marks cut, explain exactly what was wrong or missing."
     }
   ],
   "obtainedMarks": 75,
@@ -95,31 +93,35 @@ Please evaluate and return a JSON object with this exact structure:
   "areasForImprovement": ["Area 1", "Area 2"]
 }
 
-IMPORTANT: For each question, you MUST include:
-- questionText: Extract the actual question from the answer key
-- studentAnswer: Extract what the student wrote for that question
-- expectedAnswer: The correct answer from the answer key
-- feedback: Detailed review explaining the evaluation
+CRITICAL REQUIREMENTS:
+- questionText: Extract the EXACT question from the answer key
+- studentAnswer: Extract EXACTLY what the student wrote for that question
+- expectedAnswer: The COMPLETE correct answer from the answer key
+- feedback: If marks are deducted, CLEARLY explain WHY and what was missing/incorrect`;
 
-If you cannot identify specific questions, provide an overall evaluation with estimated marks based on the content quality.`;
+    console.log("Calling Gemini API for evaluation...");
 
-    console.log("Calling Lovable AI Gateway for evaluation...");
-
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ],
-        temperature: 0.3,
-      }),
-    });
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: prompt }]
+            }
+          ],
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 8192,
+          }
+        }),
+      }
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -141,14 +143,14 @@ If you cannot identify specific questions, provide an overall evaluation with es
     }
 
     const aiResponse = await response.json();
-    const content = aiResponse.choices?.[0]?.message?.content;
+    const content = aiResponse.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!content) {
-      console.error("Empty response from AI");
-      throw new Error("Empty response from AI");
+      console.error("Empty response from Gemini:", JSON.stringify(aiResponse));
+      throw new Error("Empty response from Gemini");
     }
 
-    console.log("AI response received, parsing...");
+    console.log("Gemini response received, parsing...");
 
     // Extract JSON from the response
     let evaluationData;
