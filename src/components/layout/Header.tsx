@@ -21,7 +21,7 @@ const Header = ({ isAuthenticated = false, onLogout }: HeaderProps) => {
               <GraduationCap className="h-5 w-5" />
             </div>
             <span className="font-display text-lg font-semibold text-foreground">
-              EvalPro
+              AutoCheck
             </span>
           </Link>
 

@@ -10,7 +10,7 @@ const Footer = () => {
               <GraduationCap className="h-4 w-4" />
             </div>
             <span className="font-display text-sm font-semibold text-foreground">
-              EvalPro
+              AutoCheck
             </span>
           </div>
           <p className="text-sm text-muted-foreground text-center">
