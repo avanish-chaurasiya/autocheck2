@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Upload, FileText, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Upload, FileText, Loader2, CheckCircle2, AlertCircle, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { User } from "@supabase/supabase-js";
@@ -31,6 +31,9 @@ interface EvaluationResult {
   strengths: string[];
   areasForImprovement: string[];
   pdfReportUrl?: string;
+  textExtractionAccuracy: number;
+  requiresManualReview: boolean;
+  reviewReason?: string;
 }
 
 const Evaluate = () => {
@@ -426,13 +429,23 @@ const Evaluate = () => {
           <Card className="glass-card animate-scale-in">
             <CardHeader className="text-center">
               <div className="flex justify-center mb-4">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-success/10">
-                  <CheckCircle2 className="h-8 w-8 text-success" />
+                <div className={`flex h-16 w-16 items-center justify-center rounded-full ${
+                  result.requiresManualReview ? 'bg-yellow-500/10' : 'bg-success/10'
+                }`}>
+                  {result.requiresManualReview ? (
+                    <AlertTriangle className="h-8 w-8 text-yellow-600" />
+                  ) : (
+                    <CheckCircle2 className="h-8 w-8 text-success" />
+                  )}
                 </div>
               </div>
-              <CardTitle className="text-2xl font-display">Evaluation Complete</CardTitle>
+              <CardTitle className="text-2xl font-display">
+                {result.requiresManualReview ? 'Manual Review Required' : 'Evaluation Complete'}
+              </CardTitle>
               <CardDescription>
-                AI-powered evaluation using Gemini completed successfully.
+                {result.requiresManualReview 
+                  ? 'Text extraction accuracy is below 85%. This paper needs to be reviewed by a teacher for fair evaluation.'
+                  : 'AI-powered evaluation using Gemini completed successfully.'}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -449,27 +462,55 @@ const Evaluate = () => {
                   </div>
                 </div>
                 
+                {/* Text Extraction Accuracy */}
                 <div className="border-t border-border pt-4">
-                  <div className="flex items-center justify-center gap-8">
-                    <div className="text-center">
-                      <p className="text-sm text-muted-foreground mb-2">Marks Obtained</p>
-                      <p className="text-4xl font-display font-bold text-foreground">
-                        {result.obtainedMarks} <span className="text-xl text-muted-foreground">/ {result.totalMarks}</span>
-                      </p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-sm text-muted-foreground mb-2">Grade</p>
-                      <div className={`text-3xl font-bold px-4 py-2 rounded-lg ${
-                        result.percentage >= 80 ? 'bg-success/20 text-success' :
-                        result.percentage >= 60 ? 'bg-yellow-500/20 text-yellow-600' :
-                        'bg-destructive/20 text-destructive'
-                      }`}>
-                        {result.grade}
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-sm text-muted-foreground">Text Extraction Accuracy</span>
+                    <span className={`text-sm font-semibold px-2 py-1 rounded ${
+                      result.textExtractionAccuracy >= 85 ? 'bg-success/20 text-success' :
+                      result.textExtractionAccuracy >= 70 ? 'bg-yellow-500/20 text-yellow-600' :
+                      'bg-destructive/20 text-destructive'
+                    }`}>
+                      {result.textExtractionAccuracy}%
+                    </span>
+                  </div>
+                  
+                  {result.requiresManualReview && result.reviewReason && (
+                    <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 mb-4">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium text-yellow-700">Manual Review Required</p>
+                          <p className="text-xs text-yellow-600 mt-1">{result.reviewReason}</p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <p className="text-lg text-primary font-medium mt-3 text-center">{result.percentage}%</p>
+                  )}
                 </div>
+
+                {!result.requiresManualReview && (
+                  <div className="border-t border-border pt-4">
+                    <div className="flex items-center justify-center gap-8">
+                      <div className="text-center">
+                        <p className="text-sm text-muted-foreground mb-2">Marks Obtained</p>
+                        <p className="text-4xl font-display font-bold text-foreground">
+                          {result.obtainedMarks} <span className="text-xl text-muted-foreground">/ {result.totalMarks}</span>
+                        </p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm text-muted-foreground mb-2">Grade</p>
+                        <div className={`text-3xl font-bold px-4 py-2 rounded-lg ${
+                          result.percentage >= 80 ? 'bg-success/20 text-success' :
+                          result.percentage >= 60 ? 'bg-yellow-500/20 text-yellow-600' :
+                          'bg-destructive/20 text-destructive'
+                        }`}>
+                          {result.grade}
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-lg text-primary font-medium mt-3 text-center">{result.percentage}%</p>
+                  </div>
+                )}
               </div>
 
               {/* Overall Feedback */}

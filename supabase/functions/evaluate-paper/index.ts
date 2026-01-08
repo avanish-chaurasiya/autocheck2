@@ -13,6 +13,49 @@ interface EvaluationRequest {
   rollNumber: string;
 }
 
+// Calculate text extraction accuracy based on content quality indicators
+function calculateTextExtractionAccuracy(text: string): number {
+  let score = 100;
+  
+  // Check for placeholder/error indicators
+  if (text.includes('[PDF Content from') || text.includes('[Image Content from')) {
+    score -= 30; // Significant penalty for unprocessed files
+  }
+  
+  // Check for base64 data (means image wasn't OCR'd)
+  if (text.includes('Base64:')) {
+    score -= 25;
+  }
+  
+  // Check for very short content (likely extraction failed)
+  const wordCount = text.split(/\s+/).filter(w => w.length > 2).length;
+  if (wordCount < 20) {
+    score -= 30;
+  } else if (wordCount < 50) {
+    score -= 15;
+  }
+  
+  // Check for gibberish/encoding issues
+  const nonAlphanumericRatio = (text.replace(/[a-zA-Z0-9\s.,!?;:'"()-]/g, '').length) / text.length;
+  if (nonAlphanumericRatio > 0.3) {
+    score -= 20;
+  }
+  
+  // Check for repeated characters (OCR artifacts)
+  const repeatedChars = text.match(/(.)\1{4,}/g);
+  if (repeatedChars && repeatedChars.length > 3) {
+    score -= 15;
+  }
+  
+  // Bonus for structured content (questions, numbers)
+  const hasQuestionNumbers = /\b(Q\d+|Question\s*\d+|\d+\.|[1-9]\))/i.test(text);
+  if (hasQuestionNumbers) {
+    score += 10;
+  }
+  
+  return Math.max(0, Math.min(100, score));
+}
+
 interface QuestionEvaluation {
   questionNumber: number;
   maxMarks: number;
@@ -31,6 +74,9 @@ interface EvaluationResponse {
   overallFeedback: string;
   strengths: string[];
   areasForImprovement: string[];
+  textExtractionAccuracy: number;
+  requiresManualReview: boolean;
+  reviewReason?: string;
 }
 
 serve(async (req) => {
@@ -49,6 +95,41 @@ serve(async (req) => {
     const { answerKeyText, answerSheetText, subject, totalMarks, rollNumber }: EvaluationRequest = await req.json();
 
     console.log(`Evaluating paper for roll number: ${rollNumber}, subject: ${subject}`);
+
+    // Calculate text extraction accuracy for both files
+    const answerKeyAccuracy = calculateTextExtractionAccuracy(answerKeyText);
+    const answerSheetAccuracy = calculateTextExtractionAccuracy(answerSheetText);
+    const overallAccuracy = Math.round((answerKeyAccuracy + answerSheetAccuracy) / 2);
+    
+    console.log(`Text extraction accuracy - Key: ${answerKeyAccuracy}%, Sheet: ${answerSheetAccuracy}%, Overall: ${overallAccuracy}%`);
+
+    // If accuracy is below 85%, flag for manual review
+    const ACCURACY_THRESHOLD = 85;
+    const requiresManualReview = overallAccuracy < ACCURACY_THRESHOLD;
+    
+    if (requiresManualReview) {
+      console.log(`Paper flagged for manual review due to low extraction accuracy (${overallAccuracy}%)`);
+      
+      const result: EvaluationResponse = {
+        rollNumber,
+        subject,
+        totalMarks,
+        obtainedMarks: 0,
+        percentage: 0,
+        grade: 'PENDING',
+        questionWiseEvaluation: [],
+        overallFeedback: "This paper requires manual review by the teacher due to low text extraction accuracy.",
+        strengths: [],
+        areasForImprovement: [],
+        textExtractionAccuracy: overallAccuracy,
+        requiresManualReview: true,
+        reviewReason: `Text extraction accuracy (${overallAccuracy}%) is below the 85% threshold. Answer Key accuracy: ${answerKeyAccuracy}%, Answer Sheet accuracy: ${answerSheetAccuracy}%.`
+      };
+
+      return new Response(JSON.stringify(result), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const systemPrompt = `You are an expert academic evaluator. Your task is to evaluate student answer sheets against the provided answer key and return a structured evaluation.
 
@@ -182,10 +263,12 @@ If you cannot identify specific questions, provide an overall evaluation with es
       questionWiseEvaluation: evaluationData.questionWiseEvaluation || [],
       overallFeedback: evaluationData.overallFeedback || "Evaluation completed successfully.",
       strengths: evaluationData.strengths || [],
-      areasForImprovement: evaluationData.areasForImprovement || []
+      areasForImprovement: evaluationData.areasForImprovement || [],
+      textExtractionAccuracy: overallAccuracy,
+      requiresManualReview: false
     };
 
-    console.log(`Evaluation complete: ${result.obtainedMarks}/${result.totalMarks} (${result.grade})`);
+    console.log(`Evaluation complete: ${result.obtainedMarks}/${result.totalMarks} (${result.grade}) - Accuracy: ${overallAccuracy}%`);
 
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
