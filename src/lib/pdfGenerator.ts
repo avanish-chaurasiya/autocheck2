@@ -2,9 +2,6 @@ import jsPDF from 'jspdf';
 
 interface QuestionEvaluation {
   questionNumber: number;
-  questionText: string;
-  studentAnswer: string;
-  expectedAnswer: string;
   maxMarks: number;
   obtainedMarks: number;
   feedback: string;
@@ -120,105 +117,48 @@ export const generateEvaluationPdf = (evaluation: EvaluationResult): Blob => {
 
   // Question-wise Evaluation
   if (evaluation.questionWiseEvaluation && evaluation.questionWiseEvaluation.length > 0) {
+    checkNewPage(50);
+    
+    doc.setTextColor(30, 41, 59);
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('QUESTION-WISE EVALUATION', margin, yPos);
+    yPos += 10;
+
+    // Table header
+    doc.setFillColor(59, 130, 246);
+    doc.rect(margin, yPos, pageWidth - 2 * margin, 8, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(9);
+    doc.text('Q.No', margin + 5, yPos + 6);
+    doc.text('Max', margin + 25, yPos + 6);
+    doc.text('Obtained', margin + 45, yPos + 6);
+    doc.text('Feedback', margin + 75, yPos + 6);
+    yPos += 10;
+
     evaluation.questionWiseEvaluation.forEach((q, index) => {
-      checkNewPage(80);
+      checkNewPage(20);
       
-      // Question header with marks
-      doc.setFillColor(59, 130, 246);
-      doc.roundedRect(margin, yPos, pageWidth - 2 * margin, 12, 2, 2, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(11);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`Question ${q.questionNumber}`, margin + 5, yPos + 8);
+      // Alternating row colors
+      if (index % 2 === 0) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(margin, yPos - 2, pageWidth - 2 * margin, 12, 'F');
+      }
       
-      // Marks badge
-      const marksText = `${q.obtainedMarks} / ${q.maxMarks}`;
-      const marksColor = q.obtainedMarks >= q.maxMarks * 0.8 ? [22, 163, 74] : 
-                         q.obtainedMarks >= q.maxMarks * 0.5 ? [234, 179, 8] : [239, 68, 68];
-      doc.setFillColor(marksColor[0], marksColor[1], marksColor[2]);
-      doc.roundedRect(pageWidth - margin - 35, yPos + 2, 30, 8, 2, 2, 'F');
+      doc.setTextColor(30, 41, 59);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`${q.questionNumber}`, margin + 5, yPos + 5);
+      doc.text(`${q.maxMarks}`, margin + 25, yPos + 5);
+      doc.text(`${q.obtainedMarks}`, margin + 50, yPos + 5);
+      
+      // Truncate feedback if too long
+      const feedbackWidth = pageWidth - margin - 80;
+      const truncatedFeedback = q.feedback.length > 60 ? q.feedback.substring(0, 57) + '...' : q.feedback;
+      doc.setFontSize(8);
+      doc.text(truncatedFeedback, margin + 75, yPos + 5);
       doc.setFontSize(9);
-      doc.text(marksText, pageWidth - margin - 20, yPos + 7.5, { align: 'center' });
-      yPos += 16;
       
-      // Question Text
-      if (q.questionText) {
-        checkNewPage(25);
-        doc.setFillColor(241, 245, 249);
-        doc.roundedRect(margin, yPos, pageWidth - 2 * margin, 6, 1, 1, 'F');
-        doc.setTextColor(71, 85, 105);
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'bold');
-        doc.text('QUESTION:', margin + 3, yPos + 4.5);
-        yPos += 8;
-        
-        doc.setTextColor(30, 41, 59);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(10);
-        yPos = addWrappedText(q.questionText, margin + 3, yPos, pageWidth - 2 * margin - 6);
-        yPos += 4;
-      }
-      
-      // Expected Answer
-      if (q.expectedAnswer) {
-        checkNewPage(25);
-        doc.setFillColor(220, 252, 231);
-        doc.roundedRect(margin, yPos, pageWidth - 2 * margin, 6, 1, 1, 'F');
-        doc.setTextColor(22, 101, 52);
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'bold');
-        doc.text('EXPECTED ANSWER:', margin + 3, yPos + 4.5);
-        yPos += 8;
-        
-        doc.setTextColor(30, 41, 59);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9);
-        yPos = addWrappedText(q.expectedAnswer, margin + 3, yPos, pageWidth - 2 * margin - 6, 5);
-        yPos += 4;
-      }
-      
-      // Student Answer
-      if (q.studentAnswer) {
-        checkNewPage(25);
-        doc.setFillColor(254, 249, 195);
-        doc.roundedRect(margin, yPos, pageWidth - 2 * margin, 6, 1, 1, 'F');
-        doc.setTextColor(113, 63, 18);
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'bold');
-        doc.text('STUDENT ANSWER:', margin + 3, yPos + 4.5);
-        yPos += 8;
-        
-        doc.setTextColor(30, 41, 59);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9);
-        yPos = addWrappedText(q.studentAnswer, margin + 3, yPos, pageWidth - 2 * margin - 6, 5);
-        yPos += 4;
-      }
-      
-      // Feedback/Review
-      if (q.feedback) {
-        checkNewPage(25);
-        doc.setFillColor(239, 246, 255);
-        doc.roundedRect(margin, yPos, pageWidth - 2 * margin, 6, 1, 1, 'F');
-        doc.setTextColor(30, 64, 175);
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'bold');
-        doc.text('REVIEW:', margin + 3, yPos + 4.5);
-        yPos += 8;
-        
-        doc.setTextColor(30, 41, 59);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9);
-        yPos = addWrappedText(q.feedback, margin + 3, yPos, pageWidth - 2 * margin - 6, 5);
-        yPos += 8;
-      }
-      
-      // Add separator between questions
-      if (index < evaluation.questionWiseEvaluation.length - 1) {
-        doc.setDrawColor(226, 232, 240);
-        doc.line(margin + 20, yPos, pageWidth - margin - 20, yPos);
-        yPos += 8;
-      }
+      yPos += 12;
     });
     
     yPos += 5;
